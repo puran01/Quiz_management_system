@@ -4,7 +4,7 @@ from app.database.database import get_db
 from app.models.quiz import Quiz, Question
 from typing import List, Dict
 from pydantic import BaseModel
-
+from app.models.quiz import Quiz, Question, UserAnswer  # Add UserAnswer to the imports
 class QuestionCreate(BaseModel):
     question_text: str
     option1: str
@@ -18,6 +18,7 @@ router = APIRouter()
 @router.get("/", response_model=List[dict])
 async def list_quizzes(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     quizzes = db.query(Quiz).offset(skip).limit(limit).all()
+    print(quizzes)
     return [{"id": q.id, "title": q.title, "description": q.description} for q in quizzes]
 
 @router.get("/{quiz_id}")
@@ -72,13 +73,27 @@ async def add_question(quiz_id: int, question: QuestionCreate, db: Session = Dep
 
 @router.delete("/questions/{question_id}")
 async def delete_question(question_id: int, db: Session = Depends(get_db)):
-    # Verify question exists
-    question = db.query(Question).filter(Question.id == question_id).first()
-    if not question:
-        raise HTTPException(status_code=404, detail="Question not found")
-    
-    # Delete the question
-    db.delete(question)
-    db.commit()
-    
-    return {"message": "Question deleted successfully"}
+    try:
+        print(f"Attempting to delete question {question_id}")
+        
+        # First delete related answers
+        answer_count = db.query(UserAnswer).filter(UserAnswer.question_id == question_id).delete()
+        print(f"Deleted {answer_count} related answers")
+        
+        # Then delete the question
+        question = db.query(Question).filter(Question.id == question_id).first()
+        if not question:
+            print(f"Question {question_id} not found")
+            raise HTTPException(status_code=404, detail="Question not found")
+            
+        db.delete(question)
+        db.commit()
+        print(f"Successfully deleted question {question_id}")
+        return {"message": "Question deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting question {question_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()  # This will print the full traceback
+        raise HTTPException(status_code=500, detail=str(e))

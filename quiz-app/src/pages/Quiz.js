@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Container, 
@@ -15,6 +15,15 @@ import {
 } from '@mui/material';
 import { api } from '../services/api';
 
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
 const Quiz = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -25,42 +34,9 @@ const Quiz = () => {
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(10);
 
-  useEffect(() => {
-    const fetchQuiz = async () => {
-      try {
-        const data = await api.getQuiz(id);
-        setQuiz(data);
-      } catch (err) {
-        setError('Failed to load quiz');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchQuiz();
-  }, [id]);
-
-  const handleAnswerSelect = (questionId, answer) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: answer
-    }));
-  };
-
-  const handleNext = () => {
-    if (currentQuestionIndex < quiz.questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1);
-    }
-  };
-
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     const userName = sessionStorage.getItem('quizUserName');
     if (!userName) {
       setError('User name not found. Please restart the quiz.');
@@ -79,6 +55,65 @@ const Quiz = () => {
     } catch (err) {
       setError('Failed to submit quiz');
       setSubmitting(false);
+    }
+  }, [id, answers]);
+
+  useEffect(() => {
+    const fetchQuiz = async () => {
+      try {
+        const data = await api.getQuiz(id);
+        const shuffledQuiz = {
+          ...data,
+          questions: shuffleArray(data.questions)
+        };
+        setQuiz(shuffledQuiz);
+      } catch (err) {
+        setError('Failed to load quiz');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchQuiz();
+  }, [id]);
+
+  useEffect(() => {
+    if (!quiz) return;
+
+    setTimeLeft(10);
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          if (currentQuestionIndex < quiz.questions.length - 1) {
+            setCurrentQuestionIndex(currentQuestionIndex + 1);
+          } else {
+            handleSubmit();
+          }
+          return 10;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentQuestionIndex, quiz, handleSubmit]);
+
+  const handleAnswerSelect = (questionId, answer) => {
+    setAnswers(prev => ({
+      ...prev,
+      [questionId]: answer
+    }));
+  };
+
+  const handleNext = () => {
+    if (currentQuestionIndex < quiz.questions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex(currentQuestionIndex - 1);
     }
   };
 
@@ -137,6 +172,12 @@ const Quiz = () => {
       <Typography variant="subtitle1" color="text.secondary" gutterBottom>
         Question {currentQuestionIndex + 1} of {quiz.questions.length}
       </Typography>
+      
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" color={timeLeft <= 3 ? "error" : "text.secondary"}>
+          Time remaining: {timeLeft} seconds
+        </Typography>
+      </Box>
       
       <Paper elevation={2} sx={{ p: 4, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
